@@ -16,37 +16,30 @@ namespace DecryptorFunction
             [Blob("diagnostics-decrypted/{name}", FileAccess.Write, Connection = "StorageConnectionString")] Stream decryptedBlob,
             ILogger log)
         {
-            try
+            using var rsa = RSA.Create();
+
+            rsa.ImportRSAPrivateKey(
+                Convert.FromBase64String("private key"),
+                out var _);
+
+            var aes = Aes.Create();
+
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            aes.IV = encryptedBlob[..16];
+
+            var keyBuffer = encryptedBlob[16..272];
+
+            aes.Key = rsa.Decrypt(keyBuffer, RSAEncryptionPadding.OaepSHA256);
+
+            using (var memoryStream = new MemoryStream(encryptedBlob[272..]))
+            using (var cryptoStream = new CryptoStream(memoryStream, aes.CreateDecryptor(aes.Key, aes.IV), CryptoStreamMode.Read))
             {
-                using var rsa = RSA.Create();
-
-                rsa.ImportRSAPrivateKey(
-                    Convert.FromBase64String("private key"),
-                    out var _);
-
-                var aes = Aes.Create();
-
-                aes.Mode = CipherMode.CBC;
-                aes.Padding = PaddingMode.PKCS7;
-
-                aes.IV = encryptedBlob[..16];
-
-                var keyBuffer = encryptedBlob[16..272];
-
-                aes.Key = rsa.Decrypt(keyBuffer, RSAEncryptionPadding.OaepSHA256);
-
-                using (var memoryStream = new MemoryStream(encryptedBlob[272..]))
-                using (var cryptoStream = new CryptoStream(memoryStream, aes.CreateDecryptor(aes.Key, aes.IV), CryptoStreamMode.Read))
-                {
-                    await cryptoStream.CopyToAsync(decryptedBlob);
-                }
-
-                log.LogInformation("Decrypted the file");
+                await cryptoStream.CopyToAsync(decryptedBlob);
             }
-            catch (Exception exception)
-            {
-                log.LogError(exception, "Failure");
-            }
+
+            log.LogInformation("Decrypted the file");
         }
     }
 }
